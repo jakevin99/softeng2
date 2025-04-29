@@ -1,0 +1,59 @@
+/* Dark mode direct overrides */
+.dark-mode {
+  --bg-primary: #111827;
+  --bg-secondary: #1f2937;
+  --text-primary: #f9fafb;
+  --text-secondary: #d1d5db;
+  --border-color: #374151;
+  --sidebar-bg: #0f172a;
+  --sidebar-text: #f9fafb;
+  --sidebar-item: #d1d5db;
+  --sidebar-border: rgba(255, 255, 255, 0.05);
+  --accent-color: #6366f1;
+  --accent-hover: #818cf8;
+  --shadow-color: rgba(0, 0, 0, 0.3);
+  --entry-color: #10b981;
+  --exit-color: #ef4444;
+  --calendar-color: #a78bfa;
+  --chart-grid: rgba(255, 255, 255, 0.05);
+}
+
+/* Direct element overrides */
+.dark-mode body {
+  background-color: #111827;
+  color: #f9fafb;
+}
+
+.dark-mode .sidebar {
+  background-color: #0f172a;
+}
+
+.dark-mode .stat-card,
+.dark-mode .chart-section,
+.dark-mode .settings-section,
+.dark-mode .report-controls,
+.dark-mode .report-results,
+.dark-mode .update-card {
+  background-color: #1f2937;
+  border-color: #374151;
+}
+
+.dark-mode input,
+.dark-mode select,
+.dark-mode button {
+  background-color: #1f2937;
+  color: #f9fafb;
+  border-color: #374151;
+}
+
+.dark-mode .toggle-slider {
+  background-color: #4b5563;
+}
+
+.dark-mode .toggle-slider:before {
+  background-color: #d1d5db;
+}
+
+.dark-mode input:checked + .toggle-slider {
+  background-color: #6366f1;
+} 

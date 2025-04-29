@@ -70,4 +70,4 @@ A comprehensive people counting solution for tracking and analyzing foot traffic
 
 ## License
 
-This project is proprietary and owned by Jake Viñas. 
+This project is proprietary and owned by Jake Viñas.

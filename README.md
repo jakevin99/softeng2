@@ -1,71 +1,73 @@
 # People Counter Application
 
-A real-time people counting system that tracks entries and exits in a specific area.
+A comprehensive people counting solution for tracking and analyzing foot traffic in physical spaces.
 
 ## Features
 
-- Real-time people counting with entry and exit tracking
-- Dashboard visualization with statistics and analytics
-- Historical data storage and reporting
-- Responsive design for desktop and mobile
+- **Real-time Counting**: Monitor entries and exits in real-time
+- **Data Visualization**: Interactive charts and graphs for traffic analysis
+- **Reports**: Generate detailed reports for specific time periods
+- **Dashboard**: User-friendly dashboard with key metrics
+- **Device Management**: Add and configure counting devices
+- **User Settings**: Customize application preferences
 
 ## Technology Stack
 
-- **Frontend**: SvelteKit, TypeScript, Chart.js
-- **Backend**: Node.js, Express.js, Socket.IO
+- **Frontend**: SvelteKit, HTML, CSS, JavaScript
+- **Backend**: Node.js, Express
 - **Database**: MySQL
+- **Charts**: Chart.js
 
-## Setup Instructions
+## Installation
 
 ### Prerequisites
 
-- Node.js (v18 or later)
+- Node.js (v14+)
 - MySQL
-- Web browser
+- XAMPP/Apache server
 
-### Backend Setup
+### Setup Instructions
 
-1. Navigate to the backend directory:
+1. Clone the repository
    ```
-   cd backend
+   git clone https://github.com/jakevin99/softeng2.git
+   cd softeng2
    ```
 
-2. Install dependencies:
+2. Install frontend dependencies
    ```
    npm install
    ```
 
-3. Set up the database:
-   - Create a MySQL database
-   - Import the `people_counter.sql` file
-   - Configure the database connection in `.env` file
-
-4. Start the backend server:
+3. Install backend dependencies
    ```
+   cd backend
+   npm install
+   ```
+
+4. Set up the database
+   - Import the `backend/people_counter.sql` file to your MySQL server
+   - Configure database connection in `backend/config/db.js`
+
+5. Start the backend server
+   ```
+   cd backend
    npm start
    ```
 
-### Frontend Setup
-
-1. Install dependencies:
-   ```
-   npm install
-   ```
-
-2. Start the development server:
+6. Start the frontend development server
    ```
    npm run dev
    ```
 
-3. Build for production:
-   ```
-   npm run build
-   ```
+7. Access the application at `http://localhost:5173`
 
-## Device Setup (for counter hardware)
+## Project Structure
 
-Refer to the DeviceCode file for instructions on setting up the physical counting device.
+- `/src` - Frontend SvelteKit application
+- `/backend` - Node.js/Express backend API
+- `/static` - Static assets
 
 ## License
 
-MIT 
+This project is proprietary and owned by Jake Viñas. 

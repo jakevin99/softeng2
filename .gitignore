@@ -33,7 +33,6 @@ Thumbs.db
 /build
 /dist
 /out
-/.svelte-kit
 
 # Debug
 npm-debug.log*

@@ -1,0 +1,430 @@
+/*
+ * People Counter using VL53L1X Time-of-Flight Sensor
+ * 
+ * This device counts people entering and exiting through a doorway or passage
+ * using a VL53L1X Time-of-Flight sensor. It provides a web interface for monitoring
+ * and uses hardcoded WiFi configuration.
+ * 
+ * SYSTEM ARCHITECTURE:
+ * --------------------
+ * 1. HARDWARE
+ *    - ESP32 microcontroller: Main processing unit
+ *    - VL53L1X Time-of-Flight sensor: Detects presence in two zones
+ *    - Power supply: 3.3V for the ESP32 and sensor
+ * 
+ * 2. SOFTWARE COMPONENTS
+ *    - Sensor Interface: Configures and reads data from VL53L1X
+ *    - People Counter Algorithm: Processes sensor data to determine entries/exits
+ *    - API Client: Sends counter events to a remote server
+ * 
+ * 3. HOW IT WORKS
+ *    - The system monitors two zones (LEFT and RIGHT) using the Time-of-Flight sensor
+ *    - When a person moves through these zones in sequence (L→R or R→L), the system
+ *      detects the direction and counts it as an entry or exit
+ *    - Counter data is sent to a configurable server endpoint
+ * 
+ * FIRMWARE VERSION: 1.3.0 (Removed WiFi Manager, using hardcoded credentials)
+ */
+
+// Required libraries for hardware and networking functionality
+#include <Wire.h>          // For I2C communication with sensor
+#include <VL53L1X.h>       // ToF sensor library
+#include <WiFi.h>          // WiFi connectivity
+#include <HTTPClient.h>    // For making HTTP requests to the server
+#include <Preferences.h>   // For saving settings to non-volatile memory
+
+// Version information
+#define FIRMWARE_VERSION "1.3.0"  // Updated version with hardcoded WiFi
+
+// Create preferences object for storing persistent settings
+Preferences preferences;   
+
+// Hardware Configuration - GPIO Pin Assignments
+#define SDA_PIN 21        // I2C Data pin for sensor communication
+#define SCL_PIN 22        // I2C Clock pin for sensor communication
+#define GPIO1_PIN 4       // Interrupt pin from sensor (not actively used)
+#define XSHUT_PIN 5       // Sensor shutdown/reset pin
+
+// Detection States - These define the states for the people detection algorithm
+#define NOBODY          0  // No person detected in a zone
+#define SOMEONE         1  // Person detected in a zone
+#define LEFT           0   // Left detection zone (used as array index)
+#define RIGHT          1   // Right detection zone (used as array index)
+
+// Sensor Configuration - Measurement and detection parameters
+#define DISTANCES_ARRAY_SIZE   10  // Size of distance history buffer - used for averaging/smoothing
+#define MAX_DISTANCE          2400 // Maximum valid distance (mm) - beyond this is considered "nothing detected"
+#define MIN_DISTANCE          0    // Minimum valid distance (mm)
+#define DIST_THRESHOLD        1600 // Distance threshold for presence detection (mm) - closer than this means "someone present"
+#define TIMING_BUDGET         33   // Sensor measurement timing in ms - affects speed vs. accuracy
+
+// Region of Interest (ROI) Configuration - Defines the sensor's detection zones
+#define ROWS_OF_SPADS         8    // Number of rows in detection zone - relates to sensor resolution
+#define FRONT_ZONE_CENTER     175  // Center of front detection zone (in sensor coordinates)
+#define BACK_ZONE_CENTER      231  // Center of back detection zone (in sensor coordinates)
+
+// WiFi Configuration - REPLACE WITH YOUR ACTUAL CREDENTIALS
+#define WIFI_SSID "YourWiFiSSID"     // Your WiFi network name
+#define WIFI_PASSWORD "YourPassword" // Your WiFi password
+
+// Server configuration - Remote endpoint for counter data
+#define DEFAULT_SERVER_URL "http://192.168.43.44:3000/api/counter/update"  // Default server endpoint URL
+String serverUrl;          // Variable to store the current server URL
+
+// Maximum connection attempts before giving up
+#define MAX_WIFI_ATTEMPTS 20
+
+// Track previous counts to detect changes
+int previousEntryCount = 0;
+int previousExitCount = 0;
+
+// Track which event type was triggered in the current measurement cycle
+bool entryTriggered = false;  // Set to true when an entry is detected
+bool exitTriggered = false;   // Set to true when an exit is detected
+
+// Initialize the VL53L1X sensor object
+VL53L1X sensor;
+
+// Distance measurement buffers and tracking variables
+static uint16_t Distances[2][DISTANCES_ARRAY_SIZE];  // 2D array to store distance history for both zones
+static uint8_t DistancesHead[2] = {0, 0};           // Current position in the circular buffer for each zone
+static uint8_t DistancesCount[2] = {0, 0};          // Number of readings stored in buffer for each zone
+int currentZone = 0;                                // The zone currently being measured (alternates between LEFT and RIGHT)
+int center[2] = {FRONT_ZONE_CENTER, BACK_ZONE_CENTER}; // Zone centers for the sensor's ROI (Region of Interest)
+int currentPeopleCount = 0;                         // Running count of people (entries minus exits)
+uint16_t lastDistance = 0;                         // Last measured distance value
+int lastZone = 0;                                  // Last zone that was measured
+
+// Counter variables - Total entries and exits since power-on
+int entryCount = 0;    // Number of entries detected
+int exitCount = 0;     // Number of exits detected
+
+// Send counter data to the remote server when a counting event occurs
+// Parameters:
+// - isEntry: If true, send entry data; if false, send exit data
+void sendCounterDataToServer(bool isEntry) {
+    // STEP 1: CHECK CONNECTIVITY
+    // Verify WiFi is connected before attempting to send data
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("WiFi not connected. Cannot send data to server.");
+        return;
+    }
+    
+    // STEP 2: INITIALIZE HTTP CLIENT
+    HTTPClient http;
+    
+    // STEP 3: CONFIGURE REQUEST
+    // Use the serverUrl from preferences
+    http.begin(serverUrl.c_str());
+    // Set content type to JSON
+    http.addHeader("Content-Type", "application/json");
+    
+    // STEP 4: PREPARE JSON PAYLOAD
+    // Create a JSON string with the counter data
+    String jsonPayload = "{";
+    jsonPayload += "\"deviceId\":\"ESP_CounterDevice\",";
+    
+    // Include only the relevant counter data based on event type
+    if (isEntry) {
+        jsonPayload += "\"entries\":1,"; // Always send 1 for a single entry event
+        jsonPayload += "\"exits\":0,";   // No exits
+    } else {
+        jsonPayload += "\"entries\":0,";  // No entries
+        jsonPayload += "\"exits\":1,";    // Always send 1 for a single exit event
+    }
+    
+    // Add timestamp (milliseconds since boot)
+    jsonPayload += "\"timestamp\":" + String(millis());
+    jsonPayload += "}";
+    
+    // STEP 5: SEND HTTP POST REQUEST
+    int httpResponseCode = http.POST(jsonPayload);
+    
+    // STEP 6: HANDLE RESPONSE
+    if (httpResponseCode > 0) {
+        // Request successful - get response
+        String response = http.getString();
+        Serial.println("Server response: " + response);
+        Serial.println("HTTP Response code: " + String(httpResponseCode));
+    } else {
+        // Request failed
+        Serial.print("Error sending data. Error code: ");
+        Serial.println(httpResponseCode);
+    }
+    
+    // STEP 7: CLEANUP
+    // Free resources used by the HTTP client
+    http.end();
+}
+
+// Connects to WiFi using the hardcoded credentials
+bool connectToWiFi() {
+    // STEP 1: START CONNECTION ATTEMPT
+    Serial.print("Connecting to WiFi network: ");
+    Serial.println(WIFI_SSID);
+    
+    // STEP 2: SET HOSTNAME AND MODE
+    WiFi.setHostname("ESP_CounterDevice");  // Set device hostname
+    WiFi.mode(WIFI_STA);                    // Set to station mode
+    
+    // STEP 3: SET TRANSMIT POWER
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);    // Maximum power for better range
+    
+    // STEP 4: BEGIN CONNECTION ATTEMPT
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    
+    // STEP 5: WAIT FOR CONNECTION WITH TIMEOUT
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < MAX_WIFI_ATTEMPTS) {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+    }
+    
+    // STEP 6: CHECK CONNECTION STATUS
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nConnected to WiFi");
+        Serial.print("IP address: ");
+        Serial.println(WiFi.localIP());
+        return true;
+    } else {
+        Serial.println("\nFailed to connect to WiFi after multiple attempts");
+        return false;
+    }
+}
+
+// Setup function - runs once when the device starts or resets
+void setup() {
+    // STEP 1: INITIALIZE SERIAL COMMUNICATION
+    Serial.begin(115200);  // For debugging and monitoring
+    Serial.println("\nESP Counter Device Starting...");
+  
+    // STEP 2: LOAD SAVED SETTINGS
+    // Open the preferences namespace
+    preferences.begin("counter", false);
+    // Load server URL from preferences, or use default if not found
+    serverUrl = preferences.getString("serverUrl", DEFAULT_SERVER_URL);
+    preferences.end();
+    Serial.println("Using server URL: " + serverUrl);
+    
+    // STEP 3: INITIALIZE I2C COMMUNICATION FOR SENSOR
+    Wire.begin(SDA_PIN, SCL_PIN);  // Initialize I2C bus
+    Wire.setClock(400000);         // 400kHz I2C clock for faster communication
+    
+    // STEP 4: CONFIGURE SENSOR PINS
+    pinMode(GPIO1_PIN, INPUT);     // Interrupt pin (not actively used)
+    pinMode(XSHUT_PIN, OUTPUT);    // Shutdown pin for sensor reset
+    
+    // STEP 5: RESET SENSOR
+    digitalWrite(XSHUT_PIN, LOW);  // Turn off sensor
+    delay(10);                     // Brief delay
+    digitalWrite(XSHUT_PIN, HIGH); // Turn on sensor
+    delay(10);                     // Brief delay for sensor startup
+    
+    // STEP 6: INITIALIZE VL53L1X SENSOR
+    sensor.setTimeout(500);        // Set timeout for sensor operations
+    if (!sensor.init()) {
+        // If sensor initialization fails, log error and halt
+        Serial.println("Failed to initialize VL53L1X!");
+        while (1);                 // Infinite loop (halt execution)
+    }
+    
+    // STEP 7: CONFIGURE SENSOR PARAMETERS
+    sensor.setDistanceMode(VL53L1X::Long);               // Long distance mode
+    sensor.setMeasurementTimingBudget(TIMING_BUDGET * 1000); // Set timing budget (µs)
+    sensor.setROISize(ROWS_OF_SPADS, 16);                // Set Region of Interest size
+    sensor.startContinuous(TIMING_BUDGET);               // Start continuous measurements
+    
+    // STEP 8: CONNECT TO WIFI
+    // Connect using hardcoded credentials
+    if (!connectToWiFi()) {
+        // If WiFi connection fails, try again after a brief delay
+        delay(3000);
+        ESP.restart();  // Restart the device to try again
+    }
+
+    // STEP 9: INITIALIZATION COMPLETE
+    Serial.println("VL53L1X People Counter Ready!");
+}
+
+// Loop function - runs repeatedly after setup
+void loop() {
+    // STEP 1: CHECK WIFI CONNECTION
+    // If WiFi is disconnected, attempt to reconnect
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("WiFi connection lost. Attempting to reconnect...");
+        if (!connectToWiFi()) {
+            // If reconnection fails, continue without WiFi
+            Serial.println("WiFi reconnection failed. Operating offline.");
+        }
+    }
+    
+    // STEP 2: CHECK FOR SENSOR DATA
+    if (sensor.dataReady()) {
+        // STEP 3: READ DISTANCE FROM SENSOR
+        uint16_t distance = sensor.read();  // Get distance measurement
+    
+        // STEP 4: VALIDATE DISTANCE
+        // Replace invalid zero readings with maximum distance
+        if (distance == 0) {
+            distance = MAX_DISTANCE;
+        }
+    
+        // STEP 5: STORE LAST MEASUREMENTS
+        lastDistance = distance;   // Save the distance value
+        lastZone = currentZone;    // Save the current zone
+    
+        // STEP 6: PROCESS MEASUREMENTS
+        // Run the people counting algorithm with the new measurement
+        currentPeopleCount = ProcessPeopleCountingData(distance, currentZone, 0);
+    
+        // STEP 7: DEBUG OUTPUT
+        // Print measurement information to serial console
+        Serial.printf("Zone: %d, Distance: %d, People Count: %d\n", 
+                     currentZone, distance, currentPeopleCount);
+    
+        // STEP 8: SWITCH MEASUREMENT ZONE
+        // Alternate between LEFT and RIGHT zones
+        currentZone = (currentZone + 1) % 2;
+        // Update the sensor's region of interest for the next measurement
+        sensor.setROICenter(center[currentZone]);
+    }
+}
+
+// Process sensor data to detect people movement
+// This function implements a state machine to track movement patterns
+// It uses two detection zones (LEFT and RIGHT) to determine direction
+int ProcessPeopleCountingData(int16_t Distance, uint8_t zone, uint8_t RangeStatus) {
+    // Static variables maintain their values between function calls
+    // This creates a persistent state machine that tracks movement patterns
+    
+    // PathTrack: An array that stores the sequence of zone activations (states)
+    // [0] is unused, [1-3] store the last 3 states of zone activation
+    // State encoding: 0=none, 1=left only, 2=right only, 3=both zones
+    static int PathTrack[] = {0, 0, 0, 0};  
+    
+    // Tracks how many states we've recorded so far (1-4)
+    static int PathTrackFillingSize = 1;     
+    
+    // These track the previous detection state of each zone
+    // NOBODY (0) or SOMEONE (1)
+    static int LeftPreviousStatus = NOBODY;  
+    static int RightPreviousStatus = NOBODY; 
+    
+    // Running count of people (entries minus exits)
+    // This persists across function calls to maintain the total
+    static int PeopleCount = 0;              
+  
+    // Local variables used in the current function call
+    uint16_t MinDistance;             // Will hold the minimum (closest) distance in the buffer
+    int CurrentZoneStatus = NOBODY;   // Status of the current zone (NOBODY or SOMEONE)
+    int AllZonesCurrentStatus = 0;    // Combined status of both zones encoded as: 0=none, 1=left, 2=right, 3=both
+    int AnEventHasOccured = 0;        // Flag to indicate a state change has happened
+    
+    // Reset event flags at the beginning of each processing cycle
+    entryTriggered = false;  // Entry event flag (global variable)
+    exitTriggered = false;   // Exit event flag (global variable)
+  
+    // STEP 1: DISTANCE FILTERING AND BUFFERING
+    // Add the current distance reading to the circular buffer for this zone
+    Distances[zone][DistancesHead[zone]] = Distance;
+    // Move the head pointer to the next position in the circular buffer
+    DistancesHead[zone] = (DistancesHead[zone] + 1) % DISTANCES_ARRAY_SIZE;
+    // Increment the count if the buffer isn't full yet
+    if (DistancesCount[zone] < DISTANCES_ARRAY_SIZE) {
+      DistancesCount[zone]++;
+    }
+  
+    // STEP 2: FIND MINIMUM DISTANCE
+    // Find the minimum (closest) distance in the buffer for more stable detection
+    // This helps filter out noisy readings
+    MinDistance = Distances[zone][0];
+    for (uint8_t i = 1; i < DistancesCount[zone]; i++) {
+      if (Distances[zone][i] < MinDistance)
+        MinDistance = Distances[zone][i];
+    }
+  
+    // STEP 3: DETERMINE PRESENCE
+    // If something is closer than the threshold, mark as SOMEONE present
+    if (MinDistance < DIST_THRESHOLD) {
+      CurrentZoneStatus = SOMEONE;
+    }
+  
+    // STEP 4: UPDATE ZONE STATUS AND CHECK FOR EVENTS
+    // Compare current status with previous status to detect changes
+    if (zone == LEFT) {
+      // If left zone status has changed, an event occurred
+      if (CurrentZoneStatus != LeftPreviousStatus) {
+        AnEventHasOccured = 1;
+        // Update the combined status based on both zones
+        if (CurrentZoneStatus == SOMEONE) AllZonesCurrentStatus += 1;  // Left has someone
+        if (RightPreviousStatus == SOMEONE) AllZonesCurrentStatus += 2; // Right has someone
+        LeftPreviousStatus = CurrentZoneStatus;  // Update left zone status
+      }
+    } else {
+      // If right zone status has changed, an event occurred
+      if (CurrentZoneStatus != RightPreviousStatus) {
+        AnEventHasOccured = 1;
+        // Update the combined status based on both zones
+        if (CurrentZoneStatus == SOMEONE) AllZonesCurrentStatus += 2;  // Right has someone
+        if (LeftPreviousStatus == SOMEONE) AllZonesCurrentStatus += 1; // Left has someone
+        RightPreviousStatus = CurrentZoneStatus;  // Update right zone status
+      }
+    }
+  
+    // STEP 5: PROCESS EVENTS AND TRACK PATHS
+    if (AnEventHasOccured) {
+      // If we have fewer than 4 states tracked, increment the count
+      if (PathTrackFillingSize < 4) {
+        PathTrackFillingSize++;
+      }
+      
+      // STEP 6: DETECT COMPLETED PATHS
+      // If both zones are now empty (end of a path)
+      if ((LeftPreviousStatus == NOBODY) && (RightPreviousStatus == NOBODY)) {
+        // And we have a full sequence of states
+        if (PathTrackFillingSize == 4) {
+          // Check for an entry pattern: LEFT -> BOTH -> RIGHT -> NONE (1→3→2→0)
+          // This corresponds to someone entering from the left side
+          if ((PathTrack[1] == 1) && (PathTrack[2] == 3) && (PathTrack[3] == 2)) {
+            // Entry detected
+            PeopleCount++;                // Increment running total
+            entryCount++;                 // Increment entry counter (global)
+            entryTriggered = true;        // Set entry event flag
+            Serial.printf("Walk In, People Count=%d\n", PeopleCount);
+          } 
+          // Check for an exit pattern: RIGHT -> BOTH -> LEFT -> NONE (2→3→1→0)
+          // This corresponds to someone exiting to the left side
+          else if ((PathTrack[1] == 2) && (PathTrack[2] == 3) && (PathTrack[3] == 1)) {
+            // Exit detected
+            PeopleCount--;                // Decrement running total
+            exitCount++;                  // Increment exit counter (global)
+            exitTriggered = true;         // Set exit event flag
+            Serial.printf("Walk Out, People Count=%d\n", PeopleCount);
+          } else {
+            // Invalid path sequence detected
+            Serial.println("Wrong path");
+          }
+          
+          // Reset all buffers and counters for the next detection
+          DistancesHead[0] = DistancesHead[1] = 0;
+          DistancesCount[0] = DistancesCount[1] = 0;
+          PathTrackFillingSize = 1;
+        }
+      } else {
+        // If zones are not empty, store the current combined status in the path track
+        PathTrack[PathTrackFillingSize-1] = AllZonesCurrentStatus;
+      }
+    }
+    
+    // STEP 7: HANDLE EVENTS - SEND DATA TO SERVER
+    // If an entry or exit was detected, send the appropriate data to the server
+    if (entryTriggered) {
+      sendCounterDataToServer(true);  // Send entry data to server
+    } else if (exitTriggered) {
+      sendCounterDataToServer(false);  // Send exit data to server
+    }
+    
+    // Return the current people count
+    return PeopleCount;
+}

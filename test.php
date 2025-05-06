@@ -1,5 +1,7 @@
 
 <?php
+// The purpose of this php code is as a reference for how to implement the counter logic in a php environment.
+// It is not intended to be used as a real counter, but rather as a reference for the logic.
 
 // IMPORTANT: Initialize current_count = 0 *before* this loop starts.
 // The variable needs to retain its value between loop iterations.

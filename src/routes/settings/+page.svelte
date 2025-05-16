@@ -3,9 +3,7 @@
   import { darkMode } from '$lib/stores/theme';
   
   // Settings page data
-  let notificationsEnabled = true;
   let dataRetentionDays = 30;
-  let refreshInterval = 5;
   let isDarkMode = false;
   
   // Subscribe to the dark mode store
@@ -13,15 +11,6 @@
     isDarkMode = value;
     console.log('Settings page - Dark mode state:', value);
   });
-  
-  // API connection settings
-  let apiEndpoint = 'https://api.simplecount.com/v1';
-  let apiKey = 'sk_live_••••••••••••••••••••••••';
-  
-  // Toggle function
-  function toggleSetting(setting: any) {
-    return !setting;
-  }
   
   // Toggle dark mode
   function toggleDarkMode() {
@@ -31,45 +20,23 @@
   
   // Save settings
   function saveSettings() {
-    // In a real app, this would save to a database or localStorage
-    localStorage.setItem('notificationsEnabled', notificationsEnabled.toString());
+    // Save to localStorage
     localStorage.setItem('dataRetentionDays', dataRetentionDays.toString());
-    localStorage.setItem('refreshInterval', refreshInterval.toString());
-    localStorage.setItem('apiEndpoint', apiEndpoint);
     alert('Settings saved successfully!');
   }
   
   // Reset settings
   function resetSettings() {
-    notificationsEnabled = true;
     dataRetentionDays = 30;
-    refreshInterval = 5;
     darkMode.set(false);
-    apiEndpoint = 'https://api.simplecount.com/v1';
-    apiKey = 'sk_live_••••••••••••••••••••••••';
   }
   
   // Initialize settings from localStorage
   onMount(() => {
     // Load other settings
-    const savedNotifications = localStorage.getItem('notificationsEnabled');
-    if (savedNotifications !== null) {
-      notificationsEnabled = savedNotifications === 'true';
-    }
-    
     const savedRetention = localStorage.getItem('dataRetentionDays');
     if (savedRetention !== null) {
       dataRetentionDays = parseInt(savedRetention);
-    }
-    
-    const savedInterval = localStorage.getItem('refreshInterval');
-    if (savedInterval !== null) {
-      refreshInterval = parseInt(savedInterval);
-    }
-    
-    const savedEndpoint = localStorage.getItem('apiEndpoint');
-    if (savedEndpoint !== null) {
-      apiEndpoint = savedEndpoint;
     }
     
     // Check if dark mode is already applied to the DOM
@@ -91,44 +58,6 @@
 
 <div class="settings-container">
   <h1>Settings</h1>
-  
-  <div class="settings-section">
-    <h2>General Settings</h2>
-    
-    <div class="setting-item">
-      <div class="setting-info">
-        <span class="setting-label">Enable Notifications</span>
-        <span class="setting-description">Receive alerts when count thresholds are reached</span>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" bind:checked={notificationsEnabled}>
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-    
-    <div class="setting-item">
-      <div class="setting-info">
-        <span class="setting-label">Data Retention Period</span>
-        <span class="setting-description">Number of days to keep historical data</span>
-      </div>
-      <div class="setting-control">
-        <input type="number" min="1" max="365" bind:value={dataRetentionDays} class="number-input">
-        <span class="input-suffix">days</span>
-      </div>
-    </div>
-    
-    <div class="setting-item">
-      <div class="setting-info">
-        <span class="setting-label">Dashboard Refresh Interval</span>
-        <span class="setting-description">How often to refresh the dashboard data</span>
-      </div>
-      <div class="setting-control">
-        <input type="number" min="1" max="60" bind:value={refreshInterval} class="number-input">
-        <span class="input-suffix">minutes</span>
-      </div>
-    </div>
-  </div>
-  
   <div class="settings-section">
     <h2>Appearance</h2>
     
@@ -141,30 +70,6 @@
         <input type="checkbox" bind:checked={isDarkMode} on:change={toggleDarkMode}>
         <span class="toggle-slider"></span>
       </label>
-    </div>
-  </div>
-  
-  <div class="settings-section">
-    <h2>API Connection</h2>
-    
-    <div class="setting-item">
-      <div class="setting-info">
-        <span class="setting-label">API Endpoint</span>
-        <span class="setting-description">URL for the counting system API</span>
-      </div>
-      <div class="setting-control full-width">
-        <input type="text" bind:value={apiEndpoint} class="text-input">
-      </div>
-    </div>
-    
-    <div class="setting-item">
-      <div class="setting-info">
-        <span class="setting-label">API Key</span>
-        <span class="setting-description">Authentication key for API access</span>
-      </div>
-      <div class="setting-control full-width">
-        <input type="password" bind:value={apiKey} class="text-input">
-      </div>
     </div>
   </div>
   
@@ -227,14 +132,9 @@
     color: var(--text-secondary);
   }
   
-  .setting-control {
-    display: flex;
-    align-items: center;
-  }
+ 
   
-  .full-width {
-    width: 50%;
-  }
+
   
   /* Toggle Switch */
   .toggle {
@@ -281,32 +181,6 @@
   input:checked + .toggle-slider:before {
     transform: translateX(24px);
   }
-  
-  /* Form Controls */
-  .number-input, .text-input {
-    padding: 0.5rem;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    font-size: 0.875rem;
-    background-color: var(--bg-secondary);
-    color: var(--text-primary);
-  }
-  
-  .number-input {
-    width: 60px;
-    text-align: center;
-  }
-  
-  .text-input {
-    width: 100%;
-  }
-  
-  .input-suffix {
-    margin-left: 0.5rem;
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-  }
-  
   /* Buttons */
   .settings-actions {
     display: flex;

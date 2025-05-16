@@ -37,12 +37,21 @@
 #include <WiFiManager.h>   // WiFi configuration portal
 #include <HTTPClient.h>    // For making HTTP requests to the server
 #include <Preferences.h>   // For saving settings to non-volatile memory
+#include <SPIFFS.h>     // For SPI Flash File System
 
 // Version information
 #define FIRMWARE_VERSION "1.2.0"  // Updated version without WebSocket UI
 
 // Create preferences object for storing persistent settings
 Preferences preferences;   
+
+// Global variable for offline event storage file path
+const char* OFFLINE_EVENT_FILE = "/offline_events.txt";
+
+// Timer for sync attempts
+unsigned long lastSyncAttempt = 0;
+// Sync every 30 seconds if online and events might exist, or if explicitly triggered by new event send attempt.
+const unsigned long syncInterval = 30000; 
 
 // Hardware Configuration - GPIO Pin Assignments
 #define SDA_PIN 21        // I2C Data pin for sensor communication
@@ -135,62 +144,209 @@ const char* custom_info_html = R"rawliteral(
 </html>
 )rawliteral";
 
+// Forward declarations for new/modified functions
+bool attemptSendEvent(bool isEntry, unsigned long timestamp);
+void saveEventOffline(bool isEntry, unsigned long timestamp);
+void syncOfflineData();
+void logEventForSending(bool isEntry, unsigned long timestamp);
+
 // Send counter data to the remote server when a counting event occurs
 // Parameters:
 // - isEntry: If true, send entry data; if false, send exit data
-void sendCounterDataToServer(bool isEntry) {
-    // STEP 1: CHECK CONNECTIVITY
-    // Verify WiFi is connected before attempting to send data
+// This function is now refactored into attemptSendEvent, logEventForSending, and syncOfflineData
+// The original sendCounterDataToServer is effectively replaced by this new system.
+
+// Attempts to send a single event to the server.
+// Returns true if successful (HTTP 2xx), false otherwise.
+bool attemptSendEvent(bool isEntry, unsigned long timestamp) {
+    // STEP 1: CHECK CONNECTIVITY (primarily for direct calls, logEventForSending also checks)
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("WiFi not connected. Cannot send data to server.");
-        return;
+        Serial.println("attemptSendEvent: WiFi not connected. Cannot send event.");
+        return false;
     }
     
-    // STEP 2: INITIALIZE HTTP CLIENT
     HTTPClient http;
     
     // STEP 3: CONFIGURE REQUEST
-    // Use the dynamically configurable serverUrl (can be changed by user)
-    http.begin(serverUrl.c_str());
-    // Set content type to JSON
+    http.begin(serverUrl.c_str()); // Use the global serverUrl
     http.addHeader("Content-Type", "application/json");
     
     // STEP 4: PREPARE JSON PAYLOAD
-    // Create a JSON string with the counter data
     String jsonPayload = "{";
-    jsonPayload += "\"deviceId\":\"ESP_CounterDevice\",";
+    jsonPayload += "\"deviceId\":\"ESP_CounterDevice\","; // Corrected: Escaped quotes for JSON
     
-    // Include only the relevant counter data based on event type
     if (isEntry) {
-        jsonPayload += "\"entries\":1,"; // Always send 1 for a single entry event
-        jsonPayload += "\"exits\":0,";   // No exits
+        jsonPayload += "\"entries\":1,";
+        jsonPayload += "\"exits\":0,";
     } else {
-        jsonPayload += "\"entries\":0,";  // No entries
-        jsonPayload += "\"exits\":1,";    // Always send 1 for a single exit event
+        jsonPayload += "\"entries\":0,";
+        jsonPayload += "\"exits\":1,";
     }
     
-    // Add timestamp (milliseconds since boot)
-    jsonPayload += "\"timestamp\":" + String(millis());
+    jsonPayload += "\"timestamp\":" + String(timestamp); // Corrected: Use provided timestamp
     jsonPayload += "}";
     
     // STEP 5: SEND HTTP POST REQUEST
+    Serial.println("Attempting to send event: " + jsonPayload);
     int httpResponseCode = http.POST(jsonPayload);
+    bool success = false;
     
     // STEP 6: HANDLE RESPONSE
     if (httpResponseCode > 0) {
-        // Request successful - get response
         String response = http.getString();
         Serial.println("Server response: " + response);
         Serial.println("HTTP Response code: " + String(httpResponseCode));
+        // Consider any 2xx code as success
+        if (httpResponseCode >= 200 && httpResponseCode < 300) {
+            success = true;
+            Serial.println("Event sent successfully to server.");
+        } else {
+            Serial.println("Server returned non-success code: " + String(httpResponseCode));
+        }
     } else {
-        // Request failed
-        Serial.print("Error sending data. Error code: ");
+        Serial.print("Error sending event to server. HTTPClient error code: ");
         Serial.println(httpResponseCode);
+        // Log specific errors if possible, e.g., http.errorToString(httpResponseCode)
     }
     
     // STEP 7: CLEANUP
-    // Free resources used by the HTTP client
     http.end();
+    return success;
+}
+
+// Saves an event to the offline storage file on SPIFFS
+void saveEventOffline(bool isEntry, unsigned long timestamp) {
+    Serial.println("Network unavailable or send failed. Saving event offline...");
+    File file = SPIFFS.open(OFFLINE_EVENT_FILE, FILE_APPEND);
+    if (!file) {
+        Serial.println("Failed to open offline event file for appending!");
+        return;
+    }
+    // Store as: TYPE,TIMESTAMP (e.g., ENTRY,123456789)
+    file.print(isEntry ? "ENTRY" : "EXIT");
+    file.print(",");
+    file.println(timestamp);
+    file.close();
+    Serial.println("Event saved to " + String(OFFLINE_EVENT_FILE));
+}
+
+// Decides whether to send an event immediately or save it offline.
+// This is the primary function to call when a new counter event (entry/exit) occurs.
+void logEventForSending(bool isEntry, unsigned long timestamp) {
+    // First, try to sync any existing offline data if connected.
+    // This helps clear the queue before adding new data or attempting to send new data.
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("logEventForSending: WiFi connected, attempting pre-sync of offline data.");
+        syncOfflineData(); // Attempt to clear backlog first
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("logEventForSending: WiFi connected. Attempting to send current event directly.");
+        if (!attemptSendEvent(isEntry, timestamp)) {
+            Serial.println("logEventForSending: Direct send failed for current event. Saving offline.");
+            saveEventOffline(isEntry, timestamp);
+        } else {
+            Serial.println("logEventForSending: Current event sent directly and successfully.");
+        }
+    } else {
+        Serial.println("logEventForSending: WiFi not connected. Saving current event offline.");
+        saveEventOffline(isEntry, timestamp);
+    }
+}
+
+// Synchronizes (sends) stored offline event data with the server
+void syncOfflineData() {
+    if (WiFi.status() != WL_CONNECTED) {
+        // Serial.println("syncOfflineData: WiFi not connected, cannot sync.");
+        return; 
+    }
+
+    File file = SPIFFS.open(OFFLINE_EVENT_FILE, FILE_READ);
+    if (!file || file.size() == 0) {
+        if (file) file.close();
+        // Serial.println("syncOfflineData: No offline events to sync or file not found.");
+        lastSyncAttempt = millis(); // Update time even if no file, to respect interval for next check
+        return; 
+    }
+    Serial.println("syncOfflineData: Starting offline data sync process...");
+
+    // Use a temporary file to store events that couldn't be sent
+    File tempFile = SPIFFS.open("/offline_events.tmp", FILE_WRITE);
+    if (!tempFile) {
+        Serial.println("syncOfflineData: Failed to open temporary file for syncing!");
+        file.close();
+        lastSyncAttempt = millis(); // Update time as an attempt was made
+        return;
+    }
+
+    int eventsProcessed = 0;
+    int eventsSentSuccessfully = 0;
+    bool anEventFailed = false;
+
+    while (file.available()) {
+        String line = file.readStringUntil('\\n');
+        line.trim(); 
+        if (line.length() == 0) continue;
+
+        eventsProcessed++;
+        int separatorIndex = line.indexOf(',');
+        if (separatorIndex == -1) {
+            Serial.println("syncOfflineData: Malformed event line: " + line + ". Keeping it.");
+            tempFile.println(line); // Keep malformed line to avoid data loss
+            anEventFailed = true; // Treat malformed as a failure to send this line
+            continue;
+        }
+
+        String typeStr = line.substring(0, separatorIndex);
+        String timeStr = line.substring(separatorIndex + 1);
+        
+        bool isEntryEvent = (typeStr == "ENTRY");
+        // Convert string timestamp to unsigned long
+        unsigned long eventTimestamp = strtoul(timeStr.c_str(), NULL, 10);
+
+        Serial.println("syncOfflineData: Attempting to sync event: " + typeStr + " at " + String(eventTimestamp));
+        if (attemptSendEvent(isEntryEvent, eventTimestamp)) {
+            Serial.println("syncOfflineData: Successfully synced event: " + line);
+            eventsSentSuccessfully++;
+            // If successful, event is NOT written to tempFile
+        } else {
+            Serial.println("syncOfflineData: Failed to sync event: " + line + ". Keeping for later retry.");
+            tempFile.println(line); // Write back to temp file if send failed
+            anEventFailed = true;   // Mark that at least one event failed
+            // Optional: break here if you want to stop on first failure to preserve order strictly.
+            // For now, it tries to send all, and keeps failed ones.
+        }
+    }
+
+    file.close();
+    tempFile.close();
+
+    // Replace old event file with the temporary file (which contains only unsent events)
+    SPIFFS.remove(OFFLINE_EVENT_FILE); 
+    SPIFFS.rename("/offline_events.tmp", OFFLINE_EVENT_FILE); 
+
+    Serial.print("syncOfflineData: Sync process completed. Events processed: "); Serial.print(eventsProcessed);
+    Serial.print(", Successfully sent: "); Serial.println(eventsSentSuccessfully);
+
+    if (anEventFailed) {
+        Serial.println("syncOfflineData: Some events could not be sent and remain in the offline log.");
+    } else if (eventsProcessed > 0 && eventsSentSuccessfully == eventsProcessed) {
+        Serial.println("syncOfflineData: All offline events synced successfully.");
+        // If all events were sent, the new OFFLINE_EVENT_FILE should be empty. Remove it.
+        File checkFile = SPIFFS.open(OFFLINE_EVENT_FILE, FILE_READ);
+        if (checkFile && checkFile.size() == 0) {
+            checkFile.close();
+            SPIFFS.remove(OFFLINE_EVENT_FILE);
+            Serial.println("syncOfflineData: Offline event file is now empty and has been removed.");
+        } else if (checkFile) {
+            checkFile.close(); // Should be empty, but good to close
+        }
+    } else if (eventsProcessed == 0) {
+        // This case should have been caught by the initial file check, but as a safeguard:
+        // If original file was empty, the new OFFLINE_EVENT_FILE (renamed from empty .tmp) is also empty.
+        SPIFFS.remove(OFFLINE_EVENT_FILE); // Ensure it's removed if it was empty.
+    }
+    lastSyncAttempt = millis(); // Update last sync attempt time
 }
 
 // Callback function for saving parameters from WiFiManager
@@ -225,6 +381,16 @@ void saveParamCallback() {
 void setup() {
     // STEP 1: INITIALIZE SERIAL COMMUNICATION
     Serial.begin(115200);  // For debugging and monitoring
+    Serial.println("\\nBooting ESP_CounterDevice...");
+    Serial.println("Firmware Version: " FIRMWARE_VERSION);
+
+    // STEP 1.A: INITIALIZE SPIFFS
+    // Must be done before trying to access any files
+    if (!SPIFFS.begin(true)) { // true = format SPIFFS if mount failed
+        Serial.println("FATAL: An Error has occurred while mounting SPIFFS. Halting.");
+        while(1) delay(1000); // Halt
+    }
+    Serial.println("SPIFFS mounted successfully.");
   
     // STEP 2: LOAD SAVED SETTINGS
     // Open the preferences namespace
@@ -320,6 +486,14 @@ void setup() {
   Serial.print("IP address: ");
     Serial.println(WiFi.localIP());  // Display assigned IP address
 
+    // STEP 20.A: ATTEMPT INITIAL SYNC IF CONNECTED
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("WiFi connected at startup. Attempting initial sync of any offline data.");
+        syncOfflineData();
+    } else {
+        Serial.println("WiFi not connected at startup. Offline data will be synced later if connection establishes.");
+    }
+
     // STEP 21: INITIALIZATION COMPLETE
   Serial.println("VL53L1X People Counter Ready!");
 }
@@ -356,6 +530,31 @@ void loop() {
         // Update the sensor's region of interest for the next measurement
     sensor.setROICenter(center[currentZone]);
   }
+
+  // Handle triggered events (entry/exit)
+  unsigned long currentTime = millis(); // Get current time once for potential use
+
+  if (entryTriggered) {
+    Serial.println("Main loop: Entry event detected.");
+    logEventForSending(true, currentTime); 
+    entryTriggered = false; // Reset flag after handling
+  }
+  if (exitTriggered) {
+    Serial.println("Main loop: Exit event detected.");
+    logEventForSending(false, currentTime); 
+    exitTriggered = false;  // Reset flag after handling
+  }
+
+  // Periodically try to sync offline data if connected and interval has passed
+  if (WiFi.status() == WL_CONNECTED && (currentTime - lastSyncAttempt > syncInterval)) {
+    Serial.println("Main loop: Periodic sync interval reached. Checking for offline data to sync.");
+    syncOfflineData(); 
+    // lastSyncAttempt is updated by syncOfflineData after it runs
+  }
+
+  // Small delay to prevent tight looping if sensor data isn't ready frequently
+  // and to allow background WiFi tasks to run smoothly.
+  delay(10); 
 }
 
 // Process sensor data to detect people movement
@@ -485,12 +684,13 @@ int ProcessPeopleCountingData(int16_t Distance, uint8_t zone, uint8_t RangeStatu
     }
     
     // STEP 7: HANDLE EVENTS - SEND DATA TO SERVER
-    // If an entry or exit was detected, send the appropriate data to the server
-    if (entryTriggered) {
-      sendCounterDataToServer(true);  // Send entry data to server
-    } else if (exitTriggered) {
-      sendCounterDataToServer(false);  // Send exit data to server
-    }
+    // This section is removed as event handling (sending/logging) is now done in the main loop
+    // based on entryTriggered/exitTriggered flags.
+    // if (entryTriggered) {
+    //   sendCounterDataToServer(true); 
+    // } else if (exitTriggered) {
+    //   sendCounterDataToServer(false); 
+    // }
     
     // Return the current people count
     return PeopleCount;

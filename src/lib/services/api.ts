@@ -1,4 +1,4 @@
-import { config, getApiBaseUrl } from '../config';
+import { getApiBaseUrl } from '../config';
 import { browser } from '$app/environment';
 
 /**
@@ -168,7 +168,7 @@ class ApiService {
     async getLatestDeviceData(): Promise<DeviceData> {
         try {
             console.log('Fetching latest counter data');
-            const response = await this.fetchWithCache<DeviceData>('/api/v1/counter', {
+            const response = await this.fetchWithCache<DeviceData>('/api/counters', {
                 method: 'GET'
             });
             console.log('API response:', response);
@@ -189,9 +189,20 @@ class ApiService {
     /**
      * Get historical counter data
      */
-    async getHistoricalData(): Promise<any> {
-        const response = await this.fetchWithCache<any>('/api/v1/counter?data=history', {
+    async getHistoricalData(period: string = 'day'): Promise<any> {
+        const response = await this.fetchWithCache<any>(`/api/counters/history/${period}`, {
             method: 'GET'
+        });
+        return response.data;
+    }
+
+    /**
+     * Create a new counter event (entry or exit)
+     */
+    async createCounterEvent(eventType: 'entry' | 'exit'): Promise<any> {
+        const response = await this.fetchWithAuth<any>('/api/counters/events', {
+            method: 'POST',
+            body: JSON.stringify({ eventType })
         });
         return response.data;
     }

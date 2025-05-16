@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { api } from '$lib/services/api';
   
   // Update state
   let isCheckingForUpdates = false;
@@ -9,39 +10,63 @@
   let updateFailed = false;
   let currentVersion = '1.0.0';
   let latestVersion = '1.0.1';
-  let updateNotes = [
-    'Improved sensor detection accuracy',
-    'Added support for multiple entrances',
-    'Fixed bug in weekly report calculations',
-    'Performance improvements and bug fixes'
-  ];
+  let updateNotes: string[] = [];
+  let error: string | null = null;
   
-  // Check for updates
-  function checkForUpdates() {
+  // Check for updates using RESTful API
+  async function checkForUpdates() {
     isCheckingForUpdates = true;
     updateAvailable = false;
     updateComplete = false;
     updateFailed = false;
+    error = null;
     
-    // Simulate API call to check for updates
-    setTimeout(() => {
-      isCheckingForUpdates = false;
-      updateAvailable = true;
-    }, 2000);
+    
+      
   }
   
-  // Install update
-  function installUpdate() {
+  // Install update using RESTful API
+  async function installUpdate() {
     isUpdating = true;
     updateComplete = false;
     updateFailed = false;
+    error = null;
     
-    // Simulate update installation
-    setTimeout(() => {
+    try {
+      // Make API call to install update using RESTful endpoint
+      const response = await fetch(`${api.baseUrl}/api/system/updates/install`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          version: latestVersion
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Process result
+      updateComplete = data.success;
+      
+      // In a real app, you might handle redirecting or reloading after update
+      if (updateComplete) {
+        setTimeout(() => {
+          window.location.reload();
+        }, 3000);
+      }
+      
+    } catch (err) {
+      console.error('Error installing update:', err);
+      error = err instanceof Error ? err.message : 'Failed to install update';
+      updateFailed = true;
+    } finally {
       isUpdating = false;
-      updateComplete = true;
-      // In a real app, you would reload or prompt to reload
-    }, 5000);
+    }
   }
   
   // Get update status text and class
@@ -51,9 +76,9 @@
     } else if (isUpdating) {
       return { text: 'Installing update...', class: 'status-updating' };
     } else if (updateComplete) {
-      return { text: 'Update complete! Please restart the application.', class: 'status-success' };
+      return { text: 'Update complete! The application will restart shortly.', class: 'status-success' };
     } else if (updateFailed) {
-      return { text: 'Update failed. Please try again.', class: 'status-error' };
+      return { text: `Update failed. ${error ? error : 'Please try again.'}`, class: 'status-error' };
     } else if (updateAvailable) {
       return { text: 'Update available!', class: 'status-available' };
     } else {
@@ -153,33 +178,12 @@
     
     <h3>Update History</h3>
     <div class="update-history">
-      <div class="history-item">
-        <div class="history-version">v1.0.2</div>
-        <div class="history-date">Released: June 15, 2023</div>
-        <div class="history-notes">
-          <ul>
-            <li>Added weekly reports feature</li>
-            <li>Improved dashboard performance</li>
-            <li>Fixed sensor calibration issues</li>
-          </ul>
-        </div>
-      </div>
+     
       
-      <div class="history-item">
-        <div class="history-version">v1.0.1</div>
-        <div class="history-date">Released: May 2, 2023</div>
-        <div class="history-notes">
-          <ul>
-            <li>Added support for multiple sensors</li>
-            <li>Fixed data export functionality</li>
-            <li>UI improvements</li>
-          </ul>
-        </div>
-      </div>
-      
+    
       <div class="history-item">
         <div class="history-version">v1.0.0</div>
-        <div class="history-date">Released: April 10, 2023</div>
+        <div class="history-date">Released: March 10, 2025</div>
         <div class="history-notes">
           <ul>
             <li>Initial release</li>

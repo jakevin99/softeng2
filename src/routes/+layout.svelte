@@ -5,7 +5,6 @@
   import Sidebar from '$lib/components/Sidebar.svelte';
   import { api } from '$lib/services/api';
   import { browser } from '$app/environment';
-  import { config } from '$lib/config';
   import { counterStore } from '$lib/stores/counterStore';
   
   // Sidebar state

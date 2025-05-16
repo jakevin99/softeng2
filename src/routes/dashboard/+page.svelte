@@ -2,8 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { counterStore } from '$lib/stores/counterStore';
   import { config } from '$lib/config';
-  import { browser } from '$app/environment';
-  import { api } from '$lib/services/api';
+
   
   // Dashboard data from counter store
   let currentCount = 0;
@@ -32,31 +31,22 @@
    * Reset counter data
    * This resets all counter values to zero, simulating app close behavior
    */
-  async function resetCounter() {
+  
+  
+  // Initialize counter data when the component mounts
+  onMount(async () => {
     try {
-      isResetting = true;
-      error = null;
-      
-      console.log('Manually resetting counter data...');
-      
-      // Since we're using the store now, we'll use logExit repeatedly to reset counter
-      // This is a temporary solution until we add a dedicated reset endpoint
-      while (currentCount > 0) {
-        await counterStore.logExit();
-      }
-      
-      console.log('Counter data reset successfully');
-      isResetting = false;
+      await counterStore.init();
     } catch (err) {
-      console.error('Error resetting counter data:', err);
-      error = err instanceof Error ? err.message : 'Failed to reset counter data';
-      isResetting = false;
+      console.error('Error initializing counter data:', err);
+      error = err instanceof Error ? err.message : 'Failed to load counter data';
     }
-  }
+  });
   
   // Clean up subscription on component destroy
   onDestroy(() => {
     unsubscribe();
+    counterStore.disconnect();
   });
 </script>
 
@@ -137,17 +127,7 @@
       </div>
     </div>
     
-    <div class="controls-container">
-      <div class="simulation-controls">
-        <button class="sim-button reset-button" on:click={resetCounter} disabled={isResetting}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 2v6h6"></path>
-            <path d="M3 13a9 9 0 1 0 3-7.7L3 8"></path>
-          </svg>
-          {isResetting ? 'Resetting...' : 'Reset Counter'}
-        </button>
-      </div>
-    </div>
+    
   {/if}
   
   {#if lastUpdated}
@@ -440,47 +420,12 @@
     }
   }
   
-  .controls-container {
-    margin: 2rem 0;
-  }
   
-  .simulation-controls {
-    display: flex;
-    justify-content: center;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
   
-  .sim-button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    background-color: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    color: var(--text-primary);
-    border-radius: 8px;
-    padding: 0.75rem 1.5rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-  }
   
-  .sim-button:hover {
-    border-color: var(--text-secondary);
-    transform: translateY(-2px);
-  }
   
-  .reset-button:hover {
-    border-color: var(--accent-color);
-    color: var(--accent-color);
-  }
   
-  .sim-button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    transform: none;
-  }
+ 
   
   .connection-status {
     display: flex;

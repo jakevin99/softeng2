@@ -1,121 +1,160 @@
-# People Counter Backend Server
+# People Counter API
 
-A Node.js backend server for the ESP32-based people counter device. This server receives data from the ESP32 device, stores it in a MySQL database, and provides real-time updates to the frontend via Socket.io.
+A RESTful API for the People Counter application, designed to track people entering and exiting rooms or buildings. This backend system receives data from ESP32-based IoT devices with VL53L1X Time-of-Flight sensors and provides endpoints for retrieving current counts and historical data.
 
-## Features
+## System Architecture
 
-- REST API for device integration and data retrieval
-- Real-time updates using Socket.io
-- Database for storing counter events and statistics
-- Historical data visualization support
-- Transaction-based database operations for data integrity
+The backend implements a layered architecture:
 
-## Setup
+- **REST API Layer**: Express.js routes handling HTTP requests following RESTful conventions
+- **Business Logic Layer**: Controllers and models processing data and implementing business rules
+- **Data Access Layer**: MySQL database storing counter events and aggregated statistics
+- **Real-time Layer**: Socket.io for broadcasting counter updates to connected clients
 
-1. Install dependencies:
-   ```
-   npm install
-   ```
+## Database Design
 
-2. Create the MySQL database:
-   - Open phpMyAdmin (http://localhost/phpmyadmin/)
-   - Create a new database named `people_counter`
-   - The tables will be created automatically when the server starts (two main tables: `counter_events` and `counter_stats`)
+The system uses MySQL with the following key tables:
 
-3. Start the development server:
-   ```
-   npm run dev
-   ```
+- `counter_events`: Records individual entry/exit events with timestamps
+- `counter_stats`: Maintains current count and running totals of entries/exits
+- `daily_stats`: Aggregated daily statistics for reporting
 
-**Note:** By default, the server uses the following configuration:
-- Port: 3000
-- Database host: localhost
-- Database user: root
-- Database password: (empty)
-- Database name: people_counter
 
-If you need to customize these settings, you can create a `.env` file in the backend directory with any of these values:
+
+## Data Processing Flow
+
+1. **Data Reception**: IoT devices send entry/exit events via HTTP POST
+2. **Data Validation**: Input is validated before processing
+3. **Transaction Handling**: Database operations use transactions to ensure data integrity
+4. **State Update**: Current counts are updated automically
+5. **Event Logging**: Each event is recorded with a timestamp for historical tracking
+6. **Real-time Broadcasting**: Updates are sent to connected clients via Socket.io
+
+## API Resources and Endpoints
+
+### Main Endpoints
+
+#### Get Current Stats
+
 ```
-PORT=3000
-NODE_ENV=development
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=
-DB_NAME=people_counter
+GET /api/counters
 ```
 
-## API Endpoints
+Returns the current counter stats including current count, total entries, and total exits.
 
-### GET `/api/counter/stats`
-Get current counter statistics including current count, total entries, total exits, and last update time.
-
-### POST `/api/counter/update`
-Update counter data from the ESP device.
-- Required body parameters: `entries` and/or `exits` (integers)
-- This endpoint handles multiple entries/exits in a single request
-- Updates both the counter statistics and logs individual events
-- Returns updated statistics and emits Socket.io event
-
-### POST `/api/counter/exit`
-Log a single exit event (increments exit count by 1).
-- Updates counter statistics and logs the event
-- Returns updated statistics and emits Socket.io event
-
-### GET `/api/counter/history/:period`
-Get historical data for a specific time period.
-- Valid periods: `day`, `week`, `month`
-- Returns data aggregated by hour intervals
-
-## Socket.io Integration
-
-The server emits a `counterUpdate` event whenever the counter is updated. Connect your frontend to receive real-time updates:
-
-```javascript
-// Frontend Socket.io connection example
-const socket = io('http://localhost:3000');
-
-socket.on('connect', () => {
-  console.log('Connected to server');
-});
-
-socket.on('counterUpdate', (data) => {
-  console.log('Counter updated:', data);
-  // Update your UI with the new data
-});
-```
-
-## Database Structure
-
-The backend uses two primary tables:
-
-1. `counter_stats` - Stores the current state:
-   - current_count: Number of people currently in the room
-   - total_entries: Total number of entries recorded
-   - total_exits: Total number of exits recorded
-   - last_updated: Timestamp of the last update
-
-2. `counter_events` - Logs individual entry/exit events:
-   - event_type: Either 'entry' or 'exit'
-   - timestamp: When the event occurred
-
-The database is automatically initialized on server start.
-
-## ESP32 Device Integration
-
-The ESP32 device should send HTTP POST requests to the `/api/counter/update` endpoint with the following JSON payload:
+**Response**
 
 ```json
 {
-  "entries": 1,
-  "exits": 0
+  "success": true,
+  "data": {
+    "id": 1,
+    "current_count": 15,
+    "total_entries": 50,
+    "total_exits": 35,
+    "last_updated": "2025-04-29T14:30:00.000Z"
+  }
 }
 ```
 
-Or for multiple events in a single request:
+#### Get Historical Data
+
+```
+GET /api/counters/history/:period
+```
+
+Returns historical counter data for the specified period (day, week, month).
+
+**Parameters**
+
+- `period`: The time period for which to retrieve data (day, week, month)
+
+**Response**
 
 ```json
 {
-  "entries": 3,
-  "exits": 2
+  "success": true,
+  "data": [
+    {
+      "time_interval": "2025-04-29 08:00:00",
+      "entries": 10,
+      "exits": 5
+    },
+    {
+      "time_interval": "2025-04-29 09:00:00",
+      "entries": 15,
+      "exits": 8
+    }
+  ],
+  "period": "day"
 }
-``` 
+```
+
+#### Create Event
+
+```
+POST /api/counters/events
+```
+
+Creates a new counter event (entry or exit).
+
+**Request Body**
+
+```json
+{
+  "eventType": "entry" // or "exit"
+}
+```
+
+**Response**
+
+```json
+{
+  "success": true,
+  "message": "entry event created successfully",
+  "data": {
+    "id": 1,
+    "current_count": 16,
+    "total_entries": 51,
+    "total_exits": 35,
+    "last_updated": "2025-04-29T14:35:00.000Z"
+  }
+}
+```
+
+### Legacy Endpoints
+
+Maintained for backward compatibility with existing devices:
+
+```
+POST /api/counter/update
+POST /api/counter/exit
+```
+
+## Error Handling
+
+The API implements consistent error responses with appropriate HTTP status codes:
+
+- 400: Bad Request - Invalid input
+- 401: Unauthorized - Authentication failure
+- 404: Not Found - Resource not found
+- 500: Server Error - Internal processing error
+
+## Real-time Updates
+
+The system uses Socket.io to broadcast counter updates to connected clients. When counter data changes, the server emits a 'counterUpdate' event with the latest stats.
+
+## Performance and Scalability
+
+- **Database Transactions**: Ensures data integrity during concurrent operations
+- **Optimized Queries**: Efficient SQL queries for analytics and reporting
+- **Connection Pooling**: Manages database connections efficiently
+
+## Security
+
+- API key authentication for device access
+- Input validation to prevent injection attacks
+- CORS configuration for frontend security
+
+## Development
+

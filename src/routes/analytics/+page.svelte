@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { config } from '$lib/config'; // Assuming a config file for base URL
+  import { config } from '$lib/config'; // Assuming a config  file for base URL
   // Import Chart.js by adding a comment that it needs to be added to package.json
   // Add: npm install chart.js --save
 
@@ -275,7 +275,8 @@
                   borderColor: entryColor,
                   backgroundColor: `${entryColor}20`, // 12.5% opacity
                   tension: 0.3,
-                  fill: true
+                  fill: true,
+                  borderWidth: 2 // Increase line thickness
                 },
                 {
                   label: 'Exits',
@@ -283,22 +284,39 @@
                   borderColor: exitColor,
                   backgroundColor: `${exitColor}20`, // 12.5% opacity
                   tension: 0.3,
-                  fill: true
+                  fill: true,
+                  borderWidth: 2 // Increase line thickness
                 }
               ]
             },
             options: {
               responsive: true,
+              maintainAspectRatio: false,
+              layout: {
+                padding: {
+                  left: 0,
+                  right: 0,
+                  top: 10,
+                  bottom: 10
+                }
+              },
               plugins: {
                 legend: {
                   labels: {
-                    color: textColor
-                  }
+                    color: textColor,
+                    font: {
+                      size: 14 // Larger legend font
+                    }
+                  },
+                  position: 'top'
                 },
                 title: {
                   display: true,
                   text: selectedInterval === 'weekly' ? 'Weekly Traffic Distribution' : 'Monthly Traffic Distribution',
-                  color: textColor
+                  color: textColor,
+                  font: {
+                    size: 18 // Larger title font
+                  }
                 }
               },
               scales: {
@@ -308,7 +326,10 @@
                     color: gridColor
                   },
                   ticks: {
-                    color: textColor
+                    color: textColor,
+                    font: {
+                      size: 12 // Larger tick font
+                    }
                   }
                 },
                 x: {
@@ -318,7 +339,10 @@
                   ticks: {
                     color: textColor,
                     maxRotation: 45,
-                    minRotation: 45
+                    minRotation: 45,
+                    font: {
+                      size: 12 // Larger tick font
+                    }
                   }
                 }
               }
@@ -1031,7 +1055,9 @@
                 Monthly Traffic Distribution
               {/if}
             </h3>
-            <canvas id="trafficChart"></canvas>
+            <div class="traffic-chart-wrapper" style="width:100%;">
+              <canvas id="trafficChart" height="600" width="100%"></canvas>
+            </div>
           </div>
         {/if}
         
@@ -1373,9 +1399,8 @@
   
   /* Charts Section */
   .charts-section {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1.5rem;
+    width: 100%;
+    display: block;
   }
   
   @media (min-width: 1200px) {
@@ -1385,6 +1410,8 @@
   }
   
   .chart-container {
+    width: 100%;
+    box-sizing: border-box;
     padding: 1.5rem;
     background-color: var(--bg-secondary);
     border-radius: 8px;
@@ -1605,5 +1632,22 @@
   /* Make the hourly chart taller */
   .hourly-chart canvas {
     max-height: 400px;
+  }
+  
+  /* Make the weekly/monthly traffic chart larger */
+  .traffic-chart-wrapper {
+    width: 100%;
+    position: relative;
+  }
+  
+  .traffic-chart {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  
+  .traffic-chart canvas {
+    width: 100% !important;
+    max-height: 600px;
   }
 </style> 

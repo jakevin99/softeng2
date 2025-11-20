@@ -1,0 +1,17 @@
+<script>
+  // Test script to verify API communication from browser
+  (async () => {
+    try {
+      console.log('Testing API connection...');
+      const response = await fetch('http://localhost:3000/api/counters');
+      const data = await response.json();
+      console.log('API Response:', data);
+      console.log('Data field:', data.data);
+      console.log('Current Count:', data.data?.current_count);
+      console.log('Total Entries:', data.data?.total_entries);
+      console.log('Total Exits:', data.data?.total_exits);
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  })();
+</script>

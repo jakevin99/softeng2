@@ -14,8 +14,8 @@ interface ApiConfig {
  */
 interface DeviceData {
     current_count: number;
-    today_entries: number;
-    today_exits: number;
+    total_entries: number;
+    total_exits: number;
     last_updated: string;
 }
 
@@ -23,7 +23,8 @@ interface DeviceData {
  * Interface for API response
  */
 interface ApiResponse<T> {
-    status: string;
+    success?: boolean;
+    status?: string;
     message?: string;
     data: T;
 }
@@ -101,7 +102,8 @@ class ApiService {
             }
             
             const data = await response.json();
-            if (data.status === 'error') {
+            // Handle both error status formats
+            if (data.status === 'error' || data.success === false) {
                 throw new Error(data.message || 'API Error');
             }
             

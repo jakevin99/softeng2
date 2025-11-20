@@ -122,9 +122,23 @@ function createCounterStore() {
    */
   async function fetchStats() {
     try {
-      // First cast to unknown then to CounterData to handle type conversion safely
+      console.log('fetchStats called');
       const deviceData = await api.getLatestDeviceData();
-      const data = deviceData as unknown as CounterData;
+      console.log('deviceData from API:', deviceData);
+      
+      if (!deviceData) {
+        throw new Error('No data received from API');
+      }
+      
+      // Data should have these fields from the API
+      const data = {
+        current_count: deviceData.current_count || 0,
+        total_entries: deviceData.total_entries || 0,
+        total_exits: deviceData.total_exits || 0,
+        last_updated: deviceData.last_updated || new Date().toISOString()
+      };
+      
+      console.log('Processed data:', data);
       
       // Update store with data from API
       update(state => ({

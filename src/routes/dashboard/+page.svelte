@@ -34,9 +34,21 @@
   
   
   // Initialize counter data when the component mounts
+  let pollInterval: any;
+  
   onMount(async () => {
     try {
       await counterStore.init();
+      
+      // Poll for fresh data every 2 seconds to ensure real-time updates
+      // This complements Socket.io events and ensures we catch updates from all sources
+      pollInterval = setInterval(async () => {
+        try {
+          await counterStore.fetchStats();
+        } catch (err) {
+          console.error('Error polling counter stats:', err);
+        }
+      }, 2000);
     } catch (err) {
       console.error('Error initializing counter data:', err);
       error = err instanceof Error ? err.message : 'Failed to load counter data';
@@ -47,6 +59,9 @@
   onDestroy(() => {
     unsubscribe();
     counterStore.disconnect();
+    if (pollInterval) {
+      clearInterval(pollInterval);
+    }
   });
 </script>
 
@@ -136,6 +151,16 @@
     </div>
   {/if}
 </div>
+
+
+
+
+
+
+
+
+
+
 
 <style>
   .dashboard-container {

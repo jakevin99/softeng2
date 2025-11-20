@@ -111,10 +111,12 @@
             </svg>
           </div>
         </div>
+
         <div class="stat-content">
           <div class="stat-label">Current Count</div>
           <div class="stat-value">{currentCount}</div>
         </div>
+
         <div class="card-glow"></div>
       </div>
       
@@ -130,10 +132,12 @@
             </svg>
           </div>
         </div>
+
         <div class="stat-content">
           <div class="stat-label">Today's Entries</div>
           <div class="stat-value">{entries}</div>
         </div>
+
         <div class="card-glow"></div>
       </div>
       
@@ -149,10 +153,12 @@
             </svg>
           </div>
         </div>
+
         <div class="stat-content">
           <div class="stat-label">Today's Exits</div>
           <div class="stat-value">{exits}</div>
         </div>
+
         <div class="card-glow"></div>
       </div>
     </div>
@@ -172,6 +178,7 @@
         {/if}
       </button>
     </div>
+
   {/if}
   
   {#if lastUpdated}
@@ -179,6 +186,7 @@
       Last updated: {lastUpdated}
     </div>
   {/if}
+  
 </div>
 
 

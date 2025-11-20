@@ -359,6 +359,38 @@ class CounterController {
       });
     }
   }
+
+  /**
+   * Reset all counter data to zero
+   * DELETE /counters/reset
+   */
+  async resetCounterData(req, res) {
+    try {
+      // Reset the counter stats to zero
+      const result = await counterModel.resetCounter();
+      
+      // Return 200 OK with reset data
+      res.status(200).json({
+        success: true,
+        message: 'Counter data reset successfully',
+        data: result
+      });
+      
+      // Emit counterUpdate event if socket.io is available
+      if (req.io) {
+        req.io.emit('counterUpdate', result);
+        req.io.emit('counterReset', result);
+      }
+      
+    } catch (error) {
+      console.error('Error resetting counter data:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Server error',
+        message: 'Error resetting counter data'
+      });
+    }
+  }
 }
 
 export default new CounterController(); 

@@ -26,11 +26,25 @@
       lastUpdated = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
     }
   });
-  
+
   /**
    * Reset counter data
-   * This resets all counter values to zero, simulating app close behavior
+   * This resets all counter values to zero
    */
+  async function handleReset() {
+    if (confirm('Are you sure you want to reset all counter values to zero? This cannot be undone.')) {
+      isResetting = true;
+      try {
+        await counterStore.resetCounter();
+        error = null;
+      } catch (err) {
+        error = err instanceof Error ? err.message : 'Failed to reset counter';
+        console.error('Error resetting counter:', err);
+      } finally {
+        isResetting = false;
+      }
+    }
+  }
   
   
   // Initialize counter data when the component mounts
@@ -40,15 +54,16 @@
     try {
       await counterStore.init();
       
-      // Poll for fresh data every 2 seconds to ensure real-time updates
-      // This complements Socket.io events and ensures we catch updates from all sources
+      // Poll for fresh data every 15 seconds as a fallback
+      // Primary updates come from Socket.io events which are real-time
+      // This polling is just a safety net to catch any missed updates
       pollInterval = setInterval(async () => {
         try {
           await counterStore.fetchStats();
         } catch (err) {
           console.error('Error polling counter stats:', err);
         }
-      }, 2000);
+      }, 15000); // 15 seconds instead of 2 seconds to avoid conflicts with Socket.io
     } catch (err) {
       console.error('Error initializing counter data:', err);
       error = err instanceof Error ? err.message : 'Failed to load counter data';
@@ -142,7 +157,21 @@
       </div>
     </div>
     
-    
+    <div class="controls-section">
+      <button 
+        class="reset-button" 
+        on:click={handleReset}
+        disabled={isResetting}
+        title="Reset all counter values to zero"
+      >
+        {#if isResetting}
+          <span class="spinner"></span>
+          Resetting...
+        {:else}
+          Reset Counter
+        {/if}
+      </button>
+    </div>
   {/if}
   
   {#if lastUpdated}
@@ -476,5 +505,61 @@
   
   .connected .status-indicator {
     background-color: rgb(34, 197, 94);
+  }
+
+  .controls-section {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 3rem;
+  }
+
+  .reset-button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.8rem 2rem;
+    background-color: rgb(239, 68, 68);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  }
+
+  .reset-button:hover:not(:disabled) {
+    background-color: rgb(220, 38, 38);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+  }
+
+  .reset-button:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+  }
+
+  .reset-button:disabled {
+    background-color: rgb(156, 163, 175);
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style> 

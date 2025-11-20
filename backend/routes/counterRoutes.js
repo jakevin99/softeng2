@@ -32,6 +32,9 @@ router.get('/analytics/hourly-by-date', counterController.getHourlyDataByDate);
 // POST /counters/events - Create new entry or exit event
 router.post('/events', counterController.createEvent);
 
+// DELETE /counters/reset - Reset all counter data to zero
+router.delete('/reset', counterController.resetCounterData);
+
 // Backward compatibility routes - these will be deprecated
 // POST /update - Legacy endpoint for updating counter data (maintained for device compatibility)
 router.post('/update', counterController.updateCounterData);

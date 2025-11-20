@@ -83,6 +83,7 @@ function createCounterStore() {
     });
 
     socket.on('counterUpdate', (data: CounterData) => {
+      console.log('Socket counterUpdate received:', data);
       update(state => ({
         ...state,
         currentCount: data.current_count,
@@ -93,26 +94,18 @@ function createCounterStore() {
       }));
     });
     
-    // Listen for entry events
+    // Listen for entry events - trigger a fresh fetch instead of local increment
     socket.on('entry', (data: any) => {
-      update(state => ({
-        ...state,
-        currentCount: state.currentCount + 1,
-        totalEntries: state.totalEntries + 1,
-        lastUpdated: new Date().toISOString(),
-        error: null
-      }));
+      console.log('Socket entry event received, fetching fresh data');
+      // Fetch fresh data from API instead of guessing
+      fetchStats();
     });
     
-    // Listen for exit events
+    // Listen for exit events - trigger a fresh fetch instead of local increment
     socket.on('exit', (data: any) => {
-      update(state => ({
-        ...state,
-        currentCount: Math.max(0, state.currentCount - 1),
-        totalExits: state.totalExits + 1,
-        lastUpdated: new Date().toISOString(),
-        error: null
-      }));
+      console.log('Socket exit event received, fetching fresh data');
+      // Fetch fresh data from API instead of guessing
+      fetchStats();
     });
   }
 
@@ -247,6 +240,45 @@ function createCounterStore() {
     update(state => ({ ...state, error: null }));
   }
 
+  /**
+   * Reset all counter data to zero
+   */
+  async function resetCounter() {
+    try {
+      console.log('Resetting counter data from store');
+      const response = await api.resetCounterData();
+      
+      if (!response.data) {
+        throw new Error('No data received from reset');
+      }
+      
+      // Update store with reset data
+      const data = {
+        current_count: response.data.current_count || 0,
+        total_entries: response.data.total_entries || 0,
+        total_exits: response.data.total_exits || 0,
+        last_updated: response.data.last_updated || new Date().toISOString()
+      };
+      
+      update(state => ({
+        ...state,
+        currentCount: data.current_count,
+        totalEntries: data.total_entries,
+        totalExits: data.total_exits,
+        lastUpdated: data.last_updated,
+        error: null
+      }));
+      
+      console.log('Counter reset successfully:', data);
+      return data;
+    } catch (error: unknown) {
+      console.error('Error resetting counter:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to reset counter data';
+      update(state => ({ ...state, error: errorMessage }));
+      return null;
+    }
+  }
+
   return {
     subscribe,
     init,
@@ -255,6 +287,7 @@ function createCounterStore() {
     createEvent,
     logEntry,
     logExit,
+    resetCounter,
     clearError,
     disconnect: () => {
       if (socket) {

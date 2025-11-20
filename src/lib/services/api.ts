@@ -240,14 +240,14 @@ class ApiService {
     /**
      * Reset all counter data to zero
      * This resets current count, today's entries, and today's exits to zero
-     * Useful when closing the app to start fresh on next launch
+     * Useful when resetting the dashboard
      */
     async resetCounterData(): Promise<ApiResponse<DeviceData>> {
         try {
             console.log('Resetting counter data...');
-            const response = await this.fetchWithCache<DeviceData>('/api/v1/counter', {
+            const response = await this.fetchWithAuth<DeviceData>('/api/counters/reset', {
                 method: 'DELETE'
-            }, true); // bypass cache for DELETE
+            });
             
             // Clear cache after resetting data
             this.clearCache();

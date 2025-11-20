@@ -630,6 +630,44 @@ If any part of the process fails, the entire operation is rolled back*/
       throw error;
     }
   }
+
+  /**
+   * Reset all counter values to zero
+   * This resets current_count, total_entries, and total_exits
+   * Useful for resetting the dashboard without waiting for the daily reset
+   */
+  async resetCounter() {
+    try {
+      const connection = await pool.getConnection();
+      
+      // Start transaction
+      await connection.beginTransaction();
+      
+      try {
+        // Reset counter stats to zero
+        await connection.query(
+          'UPDATE counter_stats SET current_count = 0, total_entries = 0, total_exits = 0, last_updated = NOW() WHERE id = 1'
+        );
+        
+        // Commit transaction
+        await connection.commit();
+        
+        // Get updated stats
+        const [rows] = await connection.query('SELECT * FROM counter_stats WHERE id = 1');
+        
+        connection.release();
+        return rows[0];
+      } catch (error) {
+        // Rollback on error
+        await connection.rollback();
+        connection.release();
+        throw error;
+      }
+    } catch (error) {
+      console.error('Error resetting counter:', error);
+      throw error;
+    }
+  }
 }
 
 // Helper function for padding date components with leading zeros
